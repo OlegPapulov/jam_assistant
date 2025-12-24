@@ -252,7 +252,8 @@ def train(
             metric_functions=metric_functions,
             device=device,
             use_wandb=use_wandb,
-            wandb_run=wandb_run
+            wandb_run=wandb_run,
+            epoch=epoch + 1  # Pass epoch number for visualization naming
         )
         
         # Store history

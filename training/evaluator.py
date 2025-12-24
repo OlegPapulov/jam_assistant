@@ -51,7 +51,8 @@ def evaluate(
     metric_functions: Dict[str, Callable],
     device: str = 'cuda',
     use_wandb: bool = False,
-    wandb_run=None
+    wandb_run=None,
+    epoch: Optional[int] = None
 ) -> tuple:
     """
     Evaluate model on validation set.
@@ -66,6 +67,7 @@ def evaluate(
         device: Device to use
         use_wandb: Whether to log to wandb
         wandb_run: Wandb run object
+        epoch: Current epoch number (for visualization naming)
     
     Returns:
         Tuple of (losses_dict, metrics_dict)
@@ -84,9 +86,16 @@ def evaluate(
     
     metrics = {}
     
+    # Setup visualization if enabled
+    visualization_count = 0
+    if config.visualize_during_val:
+        import os
+        os.makedirs(config.val_visualization_dir, exist_ok=True)
+        from utils.audio import visualize_audio_melspectrograms
+    
     with torch.no_grad():
         with torch.autocast(device_type=device, dtype=torch.float16):
-            for batch in val_loader:
+            for batch_idx, batch in enumerate(val_loader):
                 vocals_X, vocals_y = batch['vocals']
                 drums_X, drums_y = batch['drums']
                 bass_X, bass_y = batch['bass']
@@ -175,12 +184,46 @@ def evaluate(
                         metrics[key] = []
                     metrics[key].append(value)
                 
+                # Visualization during validation if enabled
+                if config.visualize_during_val and visualization_count < config.val_visualization_samples:
+                    # Visualize first sample from batch (vocals)
+                    try:
+                        # Get first sample from vocals predictions
+                        target_melspec_sample = melspecs_y[0].cpu()  # [mel_bins, time]
+                        pred_melspec_sample = melspecs_pred[0].cpu()  # [mel_bins, time]
+                        
+                        # Create save path
+                        epoch_str = f"epoch_{epoch}" if epoch is not None else f"batch_{batch_idx}"
+                        save_path = os.path.join(
+                            config.val_visualization_dir,
+                            f"val_{epoch_str}_sample_{visualization_count}.png"
+                        )
+                        
+                        # Visualize
+                        visualize_audio_melspectrograms(
+                            target_melspec=target_melspec_sample,
+                            pred_melspec=pred_melspec_sample,
+                            config=config,
+                            save_path=save_path,
+                            show_difference=True
+                        )
+                        
+                        visualization_count += 1
+                        if epoch is not None:
+                            print(f"Saved validation visualization: {save_path}")
+                    except Exception as e:
+                        print(f"Warning: Failed to save validation visualization: {e}")
+                
                 # Clean up
                 del batch, stems_X, stems_y, melspecs_X, melspecs_y
                 del vocals_X, vocals_y, drums_X, drums_y, bass_X, bass_y
                 del other_X, other_y, all_X, all_y, melspecs_pred
                 torch.cuda.empty_cache() if device == 'cuda' else None
                 gc.collect()
+                
+                # Break early if we've visualized enough samples
+                if config.visualize_during_val and visualization_count >= config.val_visualization_samples:
+                    break
     
     # Average losses and metrics
     avg_losses = {

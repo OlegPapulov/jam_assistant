@@ -45,6 +45,11 @@ class Config:
     wandb_api_key: Optional[str] = None
     wandb_project: str = "jam-assistant"
     
+    # Visualization configuration
+    visualize_during_val: bool = False
+    val_visualization_samples: int = 1
+    val_visualization_dir: str = './logs/val_visualizations'
+    
     # Computed parameters (set automatically)
     hop_length: Optional[int] = None
     sequence_length_input: Optional[int] = None
@@ -141,6 +146,14 @@ def parse_args() -> Config:
     parser.add_argument('--wandb_project', type=str, default='jam-assistant',
                        help='Wandb project name')
     
+    # Visualization configuration
+    parser.add_argument('--visualize_during_val', action='store_true', default=False,
+                       help='Save visualization plots during validation')
+    parser.add_argument('--val_visualization_samples', type=int, default=1,
+                       help='Number of samples to visualize during validation')
+    parser.add_argument('--val_visualization_dir', type=str, default='./logs/val_visualizations',
+                       help='Directory to save validation visualizations')
+    
     args = parser.parse_args()
     
     # Convert argparse Namespace to Config
@@ -165,6 +178,9 @@ def parse_args() -> Config:
         use_wandb=args.use_wandb,
         wandb_api_key=args.wandb_api_key,
         wandb_project=args.wandb_project,
+        visualize_during_val=args.visualize_during_val,
+        val_visualization_samples=args.val_visualization_samples,
+        val_visualization_dir=args.val_visualization_dir,
     )
     
     return config

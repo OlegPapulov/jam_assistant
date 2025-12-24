@@ -511,7 +511,14 @@ def load_model_from_checkpoint(
     from models.lstm_model import LSTMModel
     
     # Load checkpoint
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    # PyTorch 2.6+ defaults to weights_only=True, but checkpoints contain Config objects
+    # Use weights_only=False for trusted checkpoints (these are our own training checkpoints)
+    try:
+        # Try with weights_only=False first (PyTorch 2.6+)
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    except TypeError:
+        # Fallback for older PyTorch versions that don't have weights_only parameter
+        checkpoint = torch.load(checkpoint_path, map_location=device)
     
     # Get config from checkpoint or use provided/default
     if config is None:
