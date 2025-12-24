@@ -1,0 +1,11 @@
+torch>=2.0.0
+torchaudio>=2.0.0
+numpy>=1.21.0
+scikit-learn>=1.0.0
+tqdm>=4.62.0
+matplotlib>=3.5.0
+musdb>=0.4.0
+stempeg>=0.2.0
+joblib>=1.0.0
+wandb>=0.15.0
+
