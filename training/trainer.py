@@ -214,7 +214,7 @@ def train(
     ).to(device)
     
     # Create gradient scaler for mixed precision
-    scaler = torch.cuda.amp.GradScaler(device) if device == 'cuda' else None
+    scaler = torch.cuda.amp.GradScaler() if device == 'cuda' else None
     
     # Training history
     history = {
