@@ -17,6 +17,10 @@ from .audio import (
     play_audio_comparison,
     get_audio_sample_from_dataset,
     visualize_audio_melspectrograms,
+    create_melspectrogram_transform,
+    load_model_from_checkpoint,
+    predict_melspectrogram,
+    visualize_sample_prediction,
 )
 
 __all__ = [
@@ -34,5 +38,9 @@ __all__ = [
     'play_audio_comparison',
     'get_audio_sample_from_dataset',
     'visualize_audio_melspectrograms',
+    'create_melspectrogram_transform',
+    'load_model_from_checkpoint',
+    'predict_melspectrogram',
+    'visualize_sample_prediction',
 ]
 

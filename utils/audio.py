@@ -237,6 +237,35 @@ def play_audio_comparison(
     return target_audio, pred_audio
 
 
+def get_audio_sample_from_dataloader(
+    dataloader: DataLoader,
+    sample_idx: Optional[int] = None,
+    stem_type: str = 'vocals',
+    return_input: bool = True,
+    return_output: bool = True
+) -> Dict[str, torch.Tensor]:
+    """
+    Extract audio sample(s) from a dataloader (convenience wrapper).
+    
+    Args:
+        dataloader: DataLoader instance
+        sample_idx: Index of sample to extract. If None, returns first sample.
+        stem_type: Type of stem to extract ('vocals', 'drums', 'bass', 'other', 'all')
+        return_input: Whether to return input audio (X)
+        return_output: Whether to return output audio (y)
+    
+    Returns:
+        Dictionary containing requested audio tensors
+    """
+    return get_audio_sample_from_dataset(
+        dataset=dataloader,
+        sample_idx=sample_idx,
+        stem_type=stem_type,
+        return_input=return_input,
+        return_output=return_output
+    )
+
+
 def get_audio_sample_from_dataset(
     dataset: Union[Dataset, DataLoader],
     sample_idx: Optional[int] = None,
@@ -320,6 +349,28 @@ def get_audio_sample_from_dataset(
             }
     
     return {}
+
+
+def create_melspectrogram_transform(
+    config: Config,
+    device: str = 'cpu'
+) -> T.MelSpectrogram:
+    """
+    Create a MelSpectrogram transform from config.
+    
+    Args:
+        config: Configuration object
+        device: Device to use ('cpu' or 'cuda')
+    
+    Returns:
+        MelSpectrogram transform ready to use
+    """
+    return T.MelSpectrogram(
+        sample_rate=config.target_sample_rate,
+        n_fft=config.n_fft,
+        n_mels=config.mel_bins,
+        hop_length=config.hop_length
+    ).to(device)
 
 
 def visualize_audio_melspectrograms(
@@ -439,4 +490,169 @@ def visualize_audio_melspectrograms(
         plt.close()
     else:
         plt.show()
+
+
+def load_model_from_checkpoint(
+    checkpoint_path: str,
+    config: Optional[Config] = None,
+    device: str = 'cpu'
+) -> Tuple[torch.nn.Module, Config]:
+    """
+    Load a trained model from checkpoint.
+    
+    Args:
+        checkpoint_path: Path to checkpoint file (.pt)
+        config: Optional config object. If None, will try to load from checkpoint or use defaults.
+        device: Device to load model on
+    
+    Returns:
+        Tuple of (model, config)
+    """
+    from models.lstm_model import LSTMModel
+    
+    # Load checkpoint
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    
+    # Get config from checkpoint or use provided/default
+    if config is None:
+        if isinstance(checkpoint, dict) and 'config' in checkpoint:
+            config = checkpoint['config']
+        else:
+            config = Config()
+    
+    # Get model state dict
+    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+        model_state_dict = checkpoint['model_state_dict']
+    else:
+        model_state_dict = checkpoint
+    
+    # Create model
+    model = LSTMModel(
+        mel_bins=config.mel_bins,
+        sequence_length_input=config.sequence_length_input,
+        sequence_length_output=config.sequence_length_output,
+        dropout_rate=config.dropout_rate,
+        use_bidirectional=config.use_bidirectional,
+        device=device
+    ).to(device)
+    
+    # Load weights
+    model.load_state_dict(model_state_dict)
+    model.eval()
+    
+    return model, config
+
+
+def predict_melspectrogram(
+    model: torch.nn.Module,
+    audio_input: torch.Tensor,
+    config: Config,
+    melspec_transform: Optional[T.MelSpectrogram] = None,
+    device: str = 'cpu'
+) -> torch.Tensor:
+    """
+    Make prediction on audio input using trained model.
+    
+    Args:
+        model: Trained model
+        audio_input: Input audio waveform tensor [time] or [batch, time]
+        config: Configuration object
+        melspec_transform: Optional melspectrogram transform. If None, will create one.
+        device: Device to use
+    
+    Returns:
+        Predicted melspectrogram tensor [mel_bins, time] or [batch, mel_bins, time]
+    """
+    model.eval()
+    
+    # Create melspectrogram transform if not provided
+    if melspec_transform is None:
+        melspec_transform = create_melspectrogram_transform(config, device)
+    
+    # Ensure audio has channel dimension for melspectrogram transform
+    # MelSpectrogram expects [batch, channels, time] or [channels, time]
+    if audio_input.dim() == 1:
+        audio_input = audio_input.unsqueeze(0)  # [1, time] -> add channel dim
+    elif audio_input.dim() == 2:
+        # Could be [batch, time] or [channels, time]
+        # If first dim is small, assume it's channels, else add channel dim
+        if audio_input.shape[0] > 10:  # Likely [batch, time]
+            audio_input = audio_input.unsqueeze(1)  # [batch, 1, time]
+        # Otherwise assume [channels, time] which is fine
+    
+    # Move to device
+    audio_input = audio_input.to(device)
+    
+    # Compute melspectrogram - outputs [batch, mel_bins, time]
+    melspec_input = melspec_transform(audio_input)
+    
+    # Apply log transformation if needed
+    if config.target_log:
+        melspec_input = torch.log1p(melspec_input)
+    
+    # Forward pass - model expects [batch, mel_bins, time] format
+    with torch.no_grad():
+        batch_size = melspec_input.shape[0]
+        melspec_pred, _, _ = model(melspec_input, batch_size=batch_size)
+    
+    # Convert back from log scale if needed
+    if config.target_log:
+        melspec_pred = torch.expm1(melspec_pred)
+    
+    return melspec_pred
+
+
+def visualize_sample_prediction(
+    model: torch.nn.Module,
+    sample: Dict[str, torch.Tensor],
+    config: Config,
+    stem_type: str = 'vocals',
+    save_path: Optional[str] = None,
+    device: str = 'cpu'
+) -> None:
+    """
+    Visualize model prediction on a dataset sample.
+    
+    This is a complete pipeline that:
+    1. Takes a sample from dataset
+    2. Makes prediction with model
+    3. Visualizes target vs predicted melspectrograms
+    
+    Args:
+        model: Trained model
+        sample: Sample dictionary from get_audio_sample_from_dataset()
+        config: Configuration object
+        stem_type: Stem type to visualize ('vocals', 'drums', 'bass', 'other')
+        save_path: Optional path to save visualization
+        device: Device to use
+    """
+    # Get target audio
+    target_audio = sample['output']  # Output is the target
+    
+    # Create melspectrogram transform
+    melspec_transform = create_melspectrogram_transform(config, device)
+    
+    # Get target melspectrogram
+    if target_audio.dim() == 1:
+        target_audio = target_audio.unsqueeze(0)  # Add channel dimension
+    
+    target_melspec = melspec_transform(target_audio.to(device))
+    
+    # Make prediction
+    pred_melspec = predict_melspectrogram(
+        model=model,
+        audio_input=sample['input'],  # Use input for prediction
+        config=config,
+        melspec_transform=melspec_transform,
+        device=device
+    )
+    
+    # Visualize
+    visualize_audio_melspectrograms(
+        target_melspec=target_melspec[0] if target_melspec.dim() == 3 else target_melspec,
+        pred_melspec=pred_melspec[0] if pred_melspec.dim() == 3 else pred_melspec,
+        config=config,
+        save_path=save_path,
+        show_difference=True
+    )
 
