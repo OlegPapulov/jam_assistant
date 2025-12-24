@@ -22,7 +22,7 @@ def train_epoch(
     loss_functions: Dict[str, Callable],
     metric_functions: Dict[str, Callable],
     device: str = 'cuda',
-    scaler: Optional[torch.cuda.amp.GradScaler] = None,
+    scaler: Optional[torch.amp.GradScaler] = None,
     use_wandb: bool = False,
     wandb_run=None
 ) -> Dict[str, float]:
@@ -214,7 +214,7 @@ def train(
     ).to(device)
     
     # Create gradient scaler for mixed precision
-    scaler = torch.cuda.amp.GradScaler() if device == 'cuda' else None
+    scaler = torch.amp.GradScaler() if device == 'cuda' else None
     
     # Training history
     history = {
