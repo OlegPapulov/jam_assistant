@@ -6,6 +6,7 @@ This module contains spectral metrics functions that operate on linear-scale mel
 """
 
 import torch
+import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Optional, Tuple
@@ -154,6 +155,51 @@ def normalize(tensor: torch.Tensor) -> torch.Tensor:
         Normalized tensor
     """
     return tensor / tensor.norm()
+
+
+class FrequencyWeightedL1(nn.Module):
+    """
+    Frequency-weighted L1 loss that penalizes high-frequency errors more heavily.
+    
+    This loss function applies increasing weights to higher frequency bins,
+    making the model focus more on accurately reconstructing high-frequency content.
+    
+    Args:
+        n_mels: Number of mel frequency bins
+        exp_factor: Exponent factor for weight scaling (default: 1.5)
+                   Higher values (>1.0) penalize high-frequency errors more heavily
+    """
+    
+    def __init__(self, n_mels: int, exp_factor: float = 1.5):
+        super().__init__()
+        # Create a weight vector that increases for higher frequency bins
+        # exp_factor > 1.0 penalizes high-freq errors more heavily
+        weights = torch.linspace(1, 2, n_mels) ** exp_factor
+        self.register_buffer('weights', weights.view(1, n_mels, 1))
+    
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Calculate frequency-weighted L1 loss.
+        
+        Args:
+            pred: Predicted melspectrogram tensor of shape [batch, mel_bins, time]
+            target: Target melspectrogram tensor of shape [batch, mel_bins, time]
+        
+        Returns:
+            Scalar loss value
+        """
+        # Ensure weights match the device and batch size
+        if pred.dim() == 3:
+            # [batch, mel_bins, time]
+            weights = self.weights.expand(pred.shape[0], -1, -1)
+        else:
+            # [mel_bins, time] - add batch dimension
+            weights = self.weights.squeeze(0)
+        
+        # L1 error multiplied by the frequency weights
+        diff = torch.abs(pred - target)
+        weighted_diff = diff * weights
+        return weighted_diff.mean()
 
 
 def calc_loss(func, preds: torch.Tensor, y: torch.Tensor) -> torch.Tensor:

@@ -24,7 +24,8 @@ def train_epoch(
     device: str = 'cuda',
     scaler: Optional[torch.amp.GradScaler] = None,
     use_wandb: bool = False,
-    wandb_run=None
+    wandb_run=None,
+    frequency_weighted_l1: Optional[nn.Module] = None
 ) -> Dict[str, float]:
     """
     Train for one epoch.
@@ -53,6 +54,7 @@ def train_epoch(
         'reconstruction_loss_bass': [],
         'reconstruction_loss_drums': [],
         'spectral_centroid_loss': [],
+        'frequency_weighted_l1_loss': [],
     }
     
     for batch in train_loader:
@@ -114,6 +116,11 @@ def train_epoch(
                 melspecs_pred,
                 melspecs_y
             ) if 'spectral_centroid' in loss_functions else torch.tensor(0.0, device=device)
+            
+            # Frequency-weighted L1 loss (on linear scale melspectrograms) - used for backpropagation
+            frequency_weighted_l1_loss_val = torch.tensor(0.0, device=device)
+            if frequency_weighted_l1 is not None:
+                frequency_weighted_l1_loss_val = frequency_weighted_l1(melspecs_pred, melspecs_y)
         
         # Backward pass
         if scaler is not None:
@@ -123,6 +130,10 @@ def train_epoch(
             
             if config.spectral_backward and spectral_centroid_loss.item() > 0:
                 scaler.scale(spectral_centroid_loss).backward(retain_graph=True)
+            
+            # Frequency-weighted L1 loss for backpropagation
+            if frequency_weighted_l1_loss_val.item() > 0:
+                scaler.scale(frequency_weighted_l1_loss_val).backward(retain_graph=True)
         else:
             reconstruction_loss.backward(retain_graph=True)
             reconstruction_loss_bass.backward(retain_graph=True)
@@ -130,12 +141,17 @@ def train_epoch(
             
             if config.spectral_backward and spectral_centroid_loss.item() > 0:
                 spectral_centroid_loss.backward(retain_graph=True)
+            
+            # Frequency-weighted L1 loss for backpropagation
+            if frequency_weighted_l1_loss_val.item() > 0:
+                frequency_weighted_l1_loss_val.backward(retain_graph=True)
         
         # Store losses
         epoch_losses['reconstruction_loss'].append(reconstruction_loss.item())
         epoch_losses['reconstruction_loss_bass'].append(reconstruction_loss_bass.item())
         epoch_losses['reconstruction_loss_drums'].append(reconstruction_loss_drums.item())
         epoch_losses['spectral_centroid_loss'].append(spectral_centroid_loss.item())
+        epoch_losses['frequency_weighted_l1_loss'].append(frequency_weighted_l1_loss_val.item())
         
         # Log to wandb if enabled
         if use_wandb and wandb_run:
@@ -177,7 +193,8 @@ def train(
     save_dir: str = './checkpoints',
     log_dir: str = './logs',
     use_wandb: bool = False,
-    wandb_run=None
+    wandb_run=None,
+    frequency_weighted_l1: Optional[nn.Module] = None
 ) -> Dict[str, List[float]]:
     """
     Main training function.
@@ -238,7 +255,8 @@ def train(
             device=device,
             scaler=scaler,
             use_wandb=use_wandb,
-            wandb_run=wandb_run
+            wandb_run=wandb_run,
+            frequency_weighted_l1=frequency_weighted_l1
         )
         
         # Evaluate
@@ -253,7 +271,8 @@ def train(
             device=device,
             use_wandb=use_wandb,
             wandb_run=wandb_run,
-            epoch=epoch + 1  # Pass epoch number for visualization naming
+            epoch=epoch + 1,  # Pass epoch number for visualization naming
+            frequency_weighted_l1=frequency_weighted_l1
         )
         
         # Store history

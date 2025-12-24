@@ -32,6 +32,7 @@ from utils.metrics import (
     spectral_bandwidth_fn,
     spectral_flatness_fn,
     spectral_entropy_fn,
+    FrequencyWeightedL1,
 )
 from visualization import visualize_training_metrics
 
@@ -87,6 +88,12 @@ def main():
     # Create optimizer
     optimizer = optim.RMSprop(model.parameters(), lr=config.learning_rate)
     
+    # Create frequency-weighted L1 loss for backpropagation
+    frequency_weighted_l1 = FrequencyWeightedL1(
+        n_mels=config.mel_bins,
+        exp_factor=1.5
+    ).to(device)
+    
     # Define loss functions
     loss_functions = {
         'spectral_centroid': spectral_centroid_fn,
@@ -117,7 +124,8 @@ def main():
         save_dir='./checkpoints',
         log_dir='./logs',
         use_wandb=config.use_wandb,
-        wandb_run=wandb_run
+        wandb_run=wandb_run,
+        frequency_weighted_l1=frequency_weighted_l1
     )
     
     # Visualize training metrics

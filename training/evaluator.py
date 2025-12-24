@@ -52,7 +52,8 @@ def evaluate(
     device: str = 'cuda',
     use_wandb: bool = False,
     wandb_run=None,
-    epoch: Optional[int] = None
+    epoch: Optional[int] = None,
+    frequency_weighted_l1: Optional[nn.Module] = None
 ) -> tuple:
     """
     Evaluate model on validation set.
@@ -82,6 +83,7 @@ def evaluate(
         'spectral_bandwidth_loss': [],
         'spectral_flatness_loss': [],
         'spectral_entropy_loss': [],
+        'frequency_weighted_l1_loss': [],
     }
     
     metrics = {}
@@ -168,6 +170,11 @@ def evaluate(
                     melspecs_y
                 ) if 'spectral_entropy' in loss_functions else torch.tensor(0.0, device=device)
                 
+                # Frequency-weighted L1 loss (on linear scale melspectrograms)
+                frequency_weighted_l1_loss_val = torch.tensor(0.0, device=device)
+                if frequency_weighted_l1 is not None:
+                    frequency_weighted_l1_loss_val = frequency_weighted_l1(melspecs_pred, melspecs_y)
+                
                 # Store losses
                 losses['reconstruction_loss'].append(reconstruction_loss.item())
                 losses['reconstruction_loss_bass'].append(reconstruction_loss_bass.item())
@@ -176,6 +183,7 @@ def evaluate(
                 losses['spectral_bandwidth_loss'].append(spectral_bandwidth_loss.item())
                 losses['spectral_flatness_loss'].append(spectral_flatness_loss.item())
                 losses['spectral_entropy_loss'].append(spectral_entropy_loss.item())
+                losses['frequency_weighted_l1_loss'].append(frequency_weighted_l1_loss_val.item())
                 
                 # Compute metrics
                 batch_metrics = compute_metrics(melspecs_pred, melspecs_y, metric_functions)

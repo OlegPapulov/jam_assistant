@@ -8,6 +8,7 @@ from .metrics import (
     normalize,
     calc_loss,
     visualize_melspectrograms,
+    FrequencyWeightedL1,
 )
 from .seed import set_seed
 from .audio import (
@@ -31,6 +32,7 @@ __all__ = [
     'normalize',
     'calc_loss',
     'visualize_melspectrograms',
+    'FrequencyWeightedL1',
     'set_seed',
     'restore_audio_from_melspec',
     'melspectrogram_to_audio',
