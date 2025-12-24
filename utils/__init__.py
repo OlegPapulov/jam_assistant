@@ -15,6 +15,8 @@ from .audio import (
     melspectrogram_to_audio,
     compare_audio,
     play_audio_comparison,
+    get_audio_sample_from_dataset,
+    visualize_audio_melspectrograms,
 )
 
 __all__ = [
@@ -30,5 +32,7 @@ __all__ = [
     'melspectrogram_to_audio',
     'compare_audio',
     'play_audio_comparison',
+    'get_audio_sample_from_dataset',
+    'visualize_audio_melspectrograms',
 ]
 

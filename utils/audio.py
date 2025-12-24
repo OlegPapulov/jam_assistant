@@ -6,7 +6,9 @@ import torch
 import torchaudio
 import torchaudio.transforms as T
 import numpy as np
-from typing import Optional, Tuple
+import matplotlib.pyplot as plt
+from typing import Optional, Tuple, Dict, Union
+from torch.utils.data import DataLoader, Dataset
 from config.config import Config
 
 
@@ -233,4 +235,208 @@ def play_audio_comparison(
                 print("Warning: No audio playback library available. Install 'sounddevice' or use in Jupyter notebook.")
     
     return target_audio, pred_audio
+
+
+def get_audio_sample_from_dataset(
+    dataset: Union[Dataset, DataLoader],
+    sample_idx: Optional[int] = None,
+    stem_type: str = 'vocals',
+    return_input: bool = True,
+    return_output: bool = True
+) -> Dict[str, torch.Tensor]:
+    """
+    Extract audio sample(s) from a dataset or dataloader.
+    
+    Args:
+        dataset: Dataset or DataLoader instance
+        sample_idx: Index of sample to extract. If None, returns first sample.
+                   If dataset is a DataLoader, extracts from first batch.
+        stem_type: Type of stem to extract ('vocals', 'drums', 'bass', 'other', 'all')
+        return_input: Whether to return input audio (X)
+        return_output: Whether to return output audio (y)
+    
+    Returns:
+        Dictionary containing requested audio tensors:
+        - 'input': Input audio waveform (if return_input=True)
+        - 'output': Output audio waveform (if return_output=True)
+        - 'stem_type': The stem type used
+    """
+    # Handle DataLoader
+    if isinstance(dataset, DataLoader):
+        batch = next(iter(dataset))
+        if sample_idx is None:
+            sample_idx = 0
+        
+        stem_data = batch[stem_type]
+        if return_input and return_output:
+            X, y = stem_data
+            X_sample = X[sample_idx] if X.dim() > 1 else X
+            y_sample = y[sample_idx] if y.dim() > 1 else y
+            return {
+                'input': X_sample,
+                'output': y_sample,
+                'stem_type': stem_type
+            }
+        elif return_input:
+            X, _ = stem_data
+            X_sample = X[sample_idx] if X.dim() > 1 else X
+            return {
+                'input': X_sample,
+                'stem_type': stem_type
+            }
+        elif return_output:
+            _, y = stem_data
+            y_sample = y[sample_idx] if y.dim() > 1 else y
+            return {
+                'output': y_sample,
+                'stem_type': stem_type
+            }
+    else:
+        # Handle Dataset
+        if sample_idx is None:
+            sample_idx = 0
+        
+        sample = dataset[sample_idx]
+        stem_data = sample[stem_type]
+        
+        if return_input and return_output:
+            X, y = stem_data
+            return {
+                'input': X,
+                'output': y,
+                'stem_type': stem_type
+            }
+        elif return_input:
+            X, _ = stem_data
+            return {
+                'input': X,
+                'stem_type': stem_type
+            }
+        elif return_output:
+            _, y = stem_data
+            return {
+                'output': y,
+                'stem_type': stem_type
+            }
+    
+    return {}
+
+
+def visualize_audio_melspectrograms(
+    target_melspec: torch.Tensor,
+    pred_melspec: torch.Tensor,
+    config: Config,
+    save_path: Optional[str] = None,
+    figsize: Tuple[int, int] = (15, 5),
+    cmap: str = 'viridis',
+    show_difference: bool = True
+) -> None:
+    """
+    Visualize target and predicted melspectrograms side-by-side with optional difference plot.
+    
+    This function is designed to work with audio samples from datasets and can be used
+    with other audio utilities.
+    
+    Args:
+        target_melspec: Target melspectrogram tensor of shape [batch, mel_bins, time] or [mel_bins, time].
+                       Expected to be in LINEAR scale (before log transformation).
+        pred_melspec: Predicted melspectrogram tensor of shape [batch, mel_bins, time] or [mel_bins, time].
+                     Expected to be in LINEAR scale (before log transformation).
+        config: Configuration object
+        save_path: Optional path to save the figure. If None, figure is displayed.
+        figsize: Figure size tuple (width, height) in inches.
+        cmap: Colormap to use for visualization.
+        show_difference: Whether to show a difference plot between target and prediction.
+    """
+    # Convert to numpy if needed
+    if isinstance(target_melspec, torch.Tensor):
+        target_melspec = target_melspec.detach().cpu().numpy()
+    if isinstance(pred_melspec, torch.Tensor):
+        pred_melspec = pred_melspec.detach().cpu().numpy()
+    
+    # Handle batched inputs - take first item
+    if target_melspec.ndim == 3:
+        target_melspec = target_melspec[0]
+    if pred_melspec.ndim == 3:
+        pred_melspec = pred_melspec[0]
+    
+    # Ensure 2D shape [mel_bins, time]
+    if target_melspec.ndim == 1:
+        target_melspec = target_melspec.reshape(-1, 1)
+    if pred_melspec.ndim == 1:
+        pred_melspec = pred_melspec.reshape(-1, 1)
+    
+    # Transpose if needed to get [mel_bins, time] format
+    if target_melspec.shape[0] < target_melspec.shape[1]:
+        target_melspec = target_melspec.T
+    if pred_melspec.shape[0] < pred_melspec.shape[1]:
+        pred_melspec = pred_melspec.T
+    
+    # Ensure same dimensions for comparison
+    min_mel_bins = min(target_melspec.shape[0], pred_melspec.shape[0])
+    min_time = min(target_melspec.shape[1], pred_melspec.shape[1])
+    target_melspec = target_melspec[:min_mel_bins, :min_time]
+    pred_melspec = pred_melspec[:min_mel_bins, :min_time]
+    
+    # Apply log scale for better visualization
+    target_melspec_viz = np.log1p(target_melspec)
+    pred_melspec_viz = np.log1p(pred_melspec)
+    
+    # Create figure
+    num_plots = 3 if show_difference else 2
+    fig, axes = plt.subplots(1, num_plots, figsize=figsize)
+    
+    if num_plots == 2:
+        axes = [axes[0], axes[1]]
+    else:
+        axes = [axes[0], axes[1], axes[2]]
+    
+    # Plot target
+    im1 = axes[0].imshow(
+        target_melspec_viz,
+        aspect='auto',
+        origin='lower',
+        cmap=cmap,
+        interpolation='nearest'
+    )
+    axes[0].set_title('Target Melspectrogram')
+    axes[0].set_xlabel('Time')
+    axes[0].set_ylabel('Mel Frequency Bin')
+    plt.colorbar(im1, ax=axes[0])
+    
+    # Plot prediction
+    im2 = axes[1].imshow(
+        pred_melspec_viz,
+        aspect='auto',
+        origin='lower',
+        cmap=cmap,
+        interpolation='nearest'
+    )
+    axes[1].set_title('Predicted Melspectrogram')
+    axes[1].set_xlabel('Time')
+    axes[1].set_ylabel('Mel Frequency Bin')
+    plt.colorbar(im2, ax=axes[1])
+    
+    # Plot difference if requested
+    if show_difference:
+        difference = np.abs(target_melspec_viz - pred_melspec_viz)
+        im3 = axes[2].imshow(
+            difference,
+            aspect='auto',
+            origin='lower',
+            cmap='hot',
+            interpolation='nearest'
+        )
+        axes[2].set_title('Absolute Difference')
+        axes[2].set_xlabel('Time')
+        axes[2].set_ylabel('Mel Frequency Bin')
+        plt.colorbar(im3, ax=axes[2])
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()
+    else:
+        plt.show()
 

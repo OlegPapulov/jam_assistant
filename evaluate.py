@@ -41,10 +41,19 @@ def main():
     # Load checkpoint
     checkpoint = torch.load(args.checkpoint, map_location='cpu')
     
-    # Get config from checkpoint or create new one
-    if 'config' in checkpoint:
-        config = checkpoint['config']
+    # Handle different checkpoint formats
+    # Check if checkpoint is a dictionary with 'model_state_dict' key
+    # or if it's a direct state_dict
+    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+        model_state_dict = checkpoint['model_state_dict']
+        # Get config from checkpoint or create new one
+        if 'config' in checkpoint:
+            config = checkpoint['config']
+        else:
+            config = Config()  # Use defaults
     else:
+        # Checkpoint is a direct state_dict
+        model_state_dict = checkpoint
         config = Config()  # Use defaults
     
     # Determine device
@@ -67,7 +76,7 @@ def main():
     ).to(device)
     
     # Load model weights
-    model.load_state_dict(checkpoint['model_state_dict'])
+    model.load_state_dict(model_state_dict)
     model.eval()
     print("Model loaded successfully")
     
